@@ -13,32 +13,6 @@ import java.util.Objects;
  */
 public class FraudActNotifCalculator {
 	
-	/*
-	 * The exact no of trailing days from the day(exclusive) of the most recent
-	 * transaction, for which the bank will trace the transaction data for deciding
-	 * whether the current transaction does qualify as a possibility of fraud
-	 * activity so that they can notify about it to the concerned user.
-	 * 
-	 */
-	private int trailDays;
-	
-	/*
-	 * The expenditure data of the user where each entry is an expenditure for a 
-	 * particular day and the entries are filled in ascending order of date. 
-	 */
-	private int [] expenditures;
-	
-	/* The prefix sum array that tracks the position of transactions in the sub-array
-	 *  of expenditure having length {@code trailDays}  
-	 */
-	private final int [] prefCountSortArr;
-	
-	/*
-	 * The state about whether the {@code prefCountSortArr} has been prepared atleast 
-	 * once or for the first time.
-	 */
-	private boolean allReadySortedOnce;
-	
 	/**
 	 * The minimum no of trailing days that can be picked by a bank for tracing,
 	 * possibly the fraud transaction, for a user.
@@ -78,64 +52,104 @@ public class FraudActNotifCalculator {
 		return "[" + MINM_TRAIL_DAYS + ", " + maxTrailDays + "]";
 	}
 	
-	private static int search(int[] arr, int start, int elem) {
-		for (int i = 0; i < arr.length - start; i++) {
-			if ((arr[start + i] == elem)
-					|| (i != 0 && arr[start + i] > elem && arr[start + i - 1] < elem)) {
-				return start + i;
-			}
-		}
-		return -1;
-	}
+	/*
+	 * The exact no of trailing days from the day(exclusive) of the most recent
+	 * transaction, for which the bank will trace the transaction data for deciding
+	 * whether the current transaction does qualify as a possibility of fraud
+	 * activity so that they can notify about it to the concerned user.
+	 * 
+	 */
+	private int trailDays;
 	
 	/*
-	 * calculate the prefix sum array for the range of elements from the index i, inclusive
-	 * to the index j, exclusive.
+	 * The expenditure data of the user where each entry is an expenditure for a 
+	 * particular day and the entries are filled in ascending order of date. 
 	 */
-	private void calPrefCountSortArrFor(int i, int j) {
-		if (!allReadySortedOnce) {
-			for (int k = 0; k < j - i; k++) {
-				prefCountSortArr[expenditures[k + i]]++;
-			}
-			for (int p = 0; p < MAXM_TRANSACT_RANGE; p++) {
-				prefCountSortArr[p + 1] += prefCountSortArr[p]; 
-			}
-			allReadySortedOnce = true;
+	private int [] expenditures;
+	
+	private interface Sorter {
+		double medianOf(int i, int j);
+	}
+	
+	private class CountSorter implements Sorter {
+		
+		/* The prefix sum array that tracks the position of transactions in the sub-array
+		 *  of expenditure having length {@code trailDays}  
+		 */
+		private final int [] prefCountSortArr;
+	
+		/*
+		 * The state about whether the {@code prefCountSortArr} has been prepared atleast 
+		 * once or for the first time.
+		 */
+		private boolean allReadySortedOnce;
+		
+		private CountSorter(int[] prefCountSortArr) {
+			this.prefCountSortArr = prefCountSortArr;
+			allReadySortedOnce = false;
 		}
-		else {
-			int elemJustEntered = expenditures[j - 1];
-			int elemJustGone = expenditures[i - 1];
-			if (elemJustEntered > elemJustGone) {
-				for (int h = 0; h < elemJustEntered - elemJustGone; h++) {
-					prefCountSortArr[elemJustGone + h]--;
+		
+		/*
+		 * calculate the prefix sum array for the range of elements from the index i, inclusive
+		 * to the index j, exclusive.
+		 */
+		private void calPrefCountSortArrFor(int i, int j) {
+			if (!allReadySortedOnce) {
+				for (int k = 0; k < j - i; k++) {
+					prefCountSortArr[expenditures[k + i]]++;
+				}
+				for (int p = 0; p < prefCountSortArr.length - 1; p++) {
+					prefCountSortArr[p + 1] += prefCountSortArr[p]; 
+				}
+				allReadySortedOnce = true;
+			}
+			else {
+				int elemJustEntered = expenditures[j - 1];
+				int elemJustGone = expenditures[i - 1];
+				if (elemJustEntered > elemJustGone) {
+					for (int h = 0; h < elemJustEntered - elemJustGone; h++) {
+						prefCountSortArr[elemJustGone + h]--;
+					}
+				}
+				else if(elemJustEntered < elemJustGone) {
+					for (int h = 0; h < elemJustGone - elemJustEntered; h++) {
+						prefCountSortArr[elemJustEntered + h]++;
+					}
 				}
 			}
-			else if(elemJustEntered < elemJustGone) {
-				for (int h = 0; h < elemJustGone - elemJustEntered; h++) {
-					prefCountSortArr[elemJustEntered + h]++;
+		}
+		
+		private int search(int start, int elem) {
+			for (int i = 0; i < prefCountSortArr.length - start; i++) {
+				if ((prefCountSortArr[start + i] == elem)
+						|| (i != 0 && prefCountSortArr[start + i] > elem && prefCountSortArr[start + i - 1] < elem)) {
+					return start + i;
 				}
+			}
+			return -1;
+		}
+		
+		/*
+		 * Implementation: Returns median of the range specified by i(inclusive) to 
+		 * j(exclusive) in expenditures. it should be only called once for each sub-array
+		 * of expenditures having length trailDays.
+		 */
+		public double medianOf(int i, int j) {
+			calPrefCountSortArrFor(i, j);
+			int firMedIndx = ((j - i - 1) / 2) + 1;
+			int firstMedian = search(0, firMedIndx);
+			if (((j - i) & 1) != 0) {
+				return firstMedian;
+			}
+			else {
+				double secondMedian = search(0, firMedIndx + 1);
+				double avgMedian = (firstMedian + secondMedian) / 2.0;
+				return avgMedian;
 			}
 		}
 	}
 	
-	/*
-	 * Implementation: Returns median of the range specified by i(inclusive) to 
-	 * j(exclusive) in expenditures. it will be only called once for each sub-array
-	 * of expenditures having length trailDays.
-	 */
-	private double medianOf(int i, int j) {
-		calPrefCountSortArrFor(i, j);
-		int firMedIndx = ((j - i - 1) / 2) + 1;
-		int firstMedian = search(prefCountSortArr, 0, firMedIndx);
-		if (((j - i) & 1) != 0) {
-			return firstMedian;
-		}
-		else {
-			double secondMedian = search(prefCountSortArr, 0, firMedIndx + 1);
-			double avgMedian = (firstMedian + secondMedian) / 2.0;
-			return avgMedian;
-		}
-	}
+	
 	
 	/**
 	 * Allocates a newly created {@code FraudActNotifCalculator} which is responsible for
@@ -157,9 +171,8 @@ public class FraudActNotifCalculator {
 		}
 		this.trailDays = trailDays;
 		this.expenditures = Arrays.copyOf(expenditures, expenditures.length);
-		this.prefCountSortArr = new int[MAXM_TRANSACT_RANGE + 1];
-		allReadySortedOnce = false;
 	}
+	
 	/**
 	 * Returns a total no of times the concerned bank user will be notified about
 	 * the fraudulent activity for the <em>expenditures</em> s/he spent.
@@ -168,8 +181,10 @@ public class FraudActNotifCalculator {
 	 */
 	public int totFreqOfNotif() {
 		int freq = 0;
+		int [] prefCountSortArr = new int[MAXM_TRANSACT_RANGE + 1];
+		Sorter sorter = new CountSorter(prefCountSortArr);
 		for (int i = 0; i < expenditures.length - trailDays; i++) {
-			double median = medianOf(i, i + trailDays);
+			double median = sorter.medianOf(i, i + trailDays);
 			if (!(expenditures[i + trailDays] < 2 * median)) {
 				freq++;
 			}
